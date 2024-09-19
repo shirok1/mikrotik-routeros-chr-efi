@@ -22,9 +22,6 @@ jobs:
         disk_type: [mbr, gpt]
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Check server configuration
         run: |
           echo -e "--------------------------CPU Info--------------------------"
@@ -44,7 +41,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo -E apt update
-          sudo -E apt -y install curl qemu-utils rsync unzip zip
+          sudo -E apt -y install curl qemu-utils rsync unzip
           sudo -E timedatectl set-timezone "Asia/Shanghai"
 
       - name: Load nbd module
@@ -118,7 +115,8 @@ jobs:
           sudo -E qemu-nbd -d /dev/nbd0
           sudo -E qemu-nbd -d /dev/nbd1
       
-      - run: |
+      - name: Rename artifact
+        run: |
           mv chr-efi.qcow2 chr-efi-${{env.CHR_VERSION}}-${{matrix.disk_type}}.qcow2
 
       - uses: actions/upload-artifact@v4
@@ -142,6 +140,14 @@ jobs:
         with:
           path: firmware
           merge-multiple: true
+
+      - name: Initialize environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E apt update
+          sudo -E apt -y install qemu-utils zip
+
       - name: Convert images
         run: |
           for disk_type in mbr gpt; do
