@@ -6,24 +6,20 @@ on:
 permissions:
   contents: read
 
+env:
+  CHR_VERSION: 7.15.3
+
 jobs:
   build:
-    permissions:
-      contents: write # for release creation
-
-    name: Build ${{matrix.version}}
+    name: Build ${{matrix.disk_type}}.qcow2
 
     runs-on: ubuntu-latest
 
     if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
 
     strategy:
-      fail-fast: false
-      # max-parallel: 2
       matrix:
-        version:
-          # - 6.49.10
-          - 7.15
+        disk_type: [mbr, gpt]
 
     steps:
       - name: Checkout
@@ -57,15 +53,16 @@ jobs:
 
       - name: Download
         run: |
-          curl -skL --retry 3 --connect-timeout 3 -o chr.img.zip https://download.mikrotik.com/routeros/${{matrix.version}}/chr-${{matrix.version}}.img.zip
-          unzip chr.*.zip
-          rm -rf chr.*.zip
+          curl -skL --retry 3 --connect-timeout 3 -o chr.img.zip https://download.mikrotik.com/routeros/${{env.CHR_VERSION}}/chr-${{env.CHR_VERSION}}.img.zip
+          unzip chr.img.zip
+          rm chr.img.zip
 
       - name: Convert to qcow2
         run: |
-          qemu-img convert -f raw -O qcow2 chr-*.img chr.qcow2
+          mv chr-*.img chr.img
+          qemu-img convert -f raw -O qcow2 chr.img chr.qcow2
           cp -af chr.qcow2 chr-efi.qcow2
-          rm -rf chr-*.img
+          rm chr.img
 
       - name: Connect ndb
         run: |
@@ -78,7 +75,6 @@ jobs:
 
       - name: Create tmp dir
         run: |
-          sudo -E rm -rf /tmp/chr*
           sudo -E mkdir /tmp/chr-bios/
           sudo -E mkdir /tmp/chr-efi/
 
@@ -96,48 +92,77 @@ jobs:
           sudo -E umount /dev/nbd0p1
           sudo -E umount /dev/nbd1p1
 
-      - name: remove tmp dir
+      - name: Create Hybrid MBR
+        if: matrix.disk_type == 'gpt'
         run: |
-          sudo -E rm -rf /tmp/chr*
-
+          (
+          echo 2 # use GPT
+          echo t # change partition code
+          echo 1 # select first partition
+          echo 8300 # change code to Linux filesystem 8300
+          echo r # Recovery/transformation
+          echo h # Hybrid MBR
+          echo 1 2 # partitions added to the hybrid MBR
+          echo n # Place EFI GPT (0xEE) partition first in MBR (good for GRUB)? (Y/N)
+          echo   # Enter an MBR hex code (default 83)
+          echo y # Set the bootable flag? (Y/N)
+          echo   # Enter an MBR hex code (default 83)
+          echo n # Set the bootable flag? (Y/N)
+          echo n # Unused partition space(s) found. Use one to protect more partitions? (Y/N)
+          echo w # write changes to disk
+          echo y # confirm
+          ) | sudo -E gdisk /dev/nbd1
+  
       - name: Disconnect ndb
         run: |
           sudo -E qemu-nbd -d /dev/nbd0
           sudo -E qemu-nbd -d /dev/nbd1
+      
+      - run: |
+          mv chr-efi.qcow2 chr-efi-${{env.CHR_VERSION}}-${{matrix.disk_type}}.qcow2
 
-      - name: Remove old
-        run: |
-          rm -rf chr.qcow2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chr-efi-${{env.CHR_VERSION}}-${{matrix.disk_type}}.qcow2
+          path: chr-efi-${{env.CHR_VERSION}}-${{matrix.disk_type}}.qcow2
 
+  release:
+    name: Release
+
+    needs: build
+  
+    permissions:
+      contents: write # for release creation
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: firmware
+          merge-multiple: true
       - name: Convert images
         run: |
-          mkdir -p ./Firmware/
-          cp -f chr-efi.qcow2 ./Firmware/
-          qemu-img convert -f qcow2 -O vmdk chr-efi.qcow2 ./Firmware/chr-efi.vmdk
-          qemu-img convert -f qcow2 -O vpc chr-efi.qcow2 ./Firmware/chr-efi.vhd
-          qemu-img convert -f qcow2 -O vhdx chr-efi.qcow2 ./Firmware/chr-efi.vhdx
-          qemu-img convert -f qcow2 -O vdi chr-efi.qcow2 ./Firmware/chr-efi.vdi
-          qemu-img convert -f qcow2 -O raw chr-efi.qcow2 ./Firmware/chr-efi.img
-          ls -l ./Firmware
+          for disk_type in mbr gpt; do
+            qemu-img convert -f qcow2 -O vmdk firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.vmdk
+            qemu-img convert -f qcow2 -O vpc firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhd
+            qemu-img convert -f qcow2 -O vhdx firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhdx
+            qemu-img convert -f qcow2 -O vdi firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.vdi
+            qemu-img convert -f qcow2 -O raw firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.img
+          done
 
       - name: Zip images
         run: |
-          cd ./Firmware/
-          zip chr-${{matrix.version}}.qcow2.zip chr-efi.qcow2
-          zip chr-${{matrix.version}}.vmdk.zip chr-efi.vmdk
-          zip chr-${{matrix.version}}.vhd.zip chr-efi.vhd
-          zip chr-${{matrix.version}}.vhdx.zip chr-efi.vhdx
-          zip chr-${{matrix.version}}.vdi.zip chr-efi.vdi
-          zip chr-${{matrix.version}}.img.zip chr-efi.img
-          ls -l ./
+          for i in chr-efi-${{env.CHR_VERSION}}-*; do zip $i.zip $i; done
+          ls -l
 
       - name: Upload Firmware to release
         uses: ncipollo/release-action@v1
         with:
-          name: ${{matrix.version}}
+          name: ${{env.CHR_VERSION}}
           allowUpdates: true
           removeArtifacts: true
-          tag: ${{matrix.version}}
+          tag: ${{env.CHR_VERSION}}
           commit: master
-          token: ${{ secrets.PERSONAL_TOKEN }}
-          artifacts: ./Firmware/*.zip
+          artifacts: *.zip
