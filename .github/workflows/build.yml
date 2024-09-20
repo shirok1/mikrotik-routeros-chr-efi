@@ -1,6 +1,9 @@
 name: build
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
@@ -134,7 +137,6 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          path: firmware
           merge-multiple: true
 
       - name: Initialize environment
@@ -147,11 +149,11 @@ jobs:
       - name: Convert images
         run: |
           for disk_type in mbr gpt; do
-            qemu-img convert -f raw -O vmdk firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vmdk
-            qemu-img convert -f raw -O vpc firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhd
-            qemu-img convert -f raw -O vhdx firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhdx
-            qemu-img convert -f raw -O vdi firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vdi
-            qemu-img convert -f raw -O qcow2 firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2
+            qemu-img convert -f raw -O vmdk chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vmdk
+            qemu-img convert -f raw -O vpc chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhd
+            qemu-img convert -f raw -O vhdx chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhdx
+            qemu-img convert -f raw -O vdi chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vdi
+            qemu-img convert -f raw -O qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2
           done
 
       - name: Zip images
