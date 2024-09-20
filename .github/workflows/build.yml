@@ -55,30 +55,26 @@ jobs:
           mv chr-*.img chr.img
           cp chr.img chr-efi.img
 
-      - name: Mount original image
-        id: mount_original
+      - name: Mount images
+        id: mount
         run: |
           og_loop=$(sudo -E losetup --find)
           sudo -E losetup --show --read-only --partscan $og_loop chr.img
-          echo "$og_loop" >> "$GITHUB_OUTPUT"
-
-      - name: Mount target image
-        id: mount_target
-        run: |
+          echo "original=$og_loop" >> "$GITHUB_OUTPUT"
           tg_loop=$(sudo -E losetup --find)
           sudo -E losetup --show --partscan $tg_loop chr-efi.img
-          echo "$tg_loop" >> "$GITHUB_OUTPUT"
+          echo "target=$tg_loop" >> "$GITHUB_OUTPUT"
 
       - name: Format boot partition
         run: |
-          sudo -E mkfs -t fat ${{steps.mount_target.outputs}}p1
+          sudo -E mkfs -t fat ${{steps.mount.outputs.target}}p1
 
       - name: Create tmp dir and mount
         run: |
           sudo -E mkdir /tmp/chr-bios/
           sudo -E mkdir /tmp/chr-efi/
-          sudo -E mount ${{steps.mount_original.outputs}}p1 /tmp/chr-bios/
-          sudo -E mount ${{steps.mount_target.outputs}}p1 /tmp/chr-efi/
+          sudo -E mount ${{steps.mount.outputs.original}}p1 /tmp/chr-bios/
+          sudo -E mount ${{steps.mount.outputs.target}}p1 /tmp/chr-efi/
 
       - name: Sync files
         run: |
@@ -86,8 +82,8 @@ jobs:
 
       - name: Umount
         run: |
-          sudo -E umount ${{steps.mount_original.outputs}}p1
-          sudo -E umount ${{steps.mount_target.outputs}}p1
+          sudo -E umount /tmp/chr-bios/
+          sudo -E umount /tmp/chr-efi/
 
       - name: Create Hybrid MBR
         if: matrix.disk_type == 'gpt'
@@ -108,12 +104,12 @@ jobs:
           echo n # Unused partition space(s) found. Use one to protect more partitions? (Y/N)
           echo w # write changes to disk
           echo y # confirm
-          ) | sudo -E gdisk ${{steps.mount_target.outputs}}
+          ) | sudo -E gdisk ${{steps.mount.outputs.target}}
   
       - name: Disconnect ndb
         run: |
-          sudo -E losetup -d ${{steps.mount_original.outputs}}
-          sudo -E losetup -d ${{steps.mount_target.outputs}}
+          sudo -E losetup -d ${{steps.mount.outputs.original}}
+          sudo -E losetup -d ${{steps.mount.outputs.target}}
       
       - name: Rename artifact
         run: |
