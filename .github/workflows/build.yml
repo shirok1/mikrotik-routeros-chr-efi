@@ -41,12 +41,8 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo -E apt update
-          sudo -E apt -y install curl qemu-utils rsync unzip
+          sudo -E apt -y install curl util-linux rsync unzip
           sudo -E timedatectl set-timezone "Asia/Shanghai"
-
-      - name: Load nbd module
-        run: |
-          sudo -E modprobe nbd
 
       - name: Download
         run: |
@@ -54,31 +50,35 @@ jobs:
           unzip chr.img.zip
           rm chr.img.zip
 
-      - name: Convert to qcow2
+      - name: Copy image
         run: |
           mv chr-*.img chr.img
-          qemu-img convert -f raw -O qcow2 chr.img chr.qcow2
-          cp -af chr.qcow2 chr-efi.qcow2
-          rm chr.img
+          cp chr.img chr-efi.img
 
-      - name: Connect ndb
+      - name: Mount original image
+        id: mount_original
         run: |
-          sudo -E qemu-nbd -c /dev/nbd0 chr.qcow2
-          sudo -E qemu-nbd -c /dev/nbd1 chr-efi.qcow2
+          og_loop=$(sudo -E losetup --find)
+          sudo -E losetup --show --read-only --partscan $og_loop chr.img
+          echo "$og_loop" >> "$GITHUB_OUTPUT"
+
+      - name: Mount target image
+        id: mount_target
+        run: |
+          tg_loop=$(sudo -E losetup --find)
+          sudo -E losetup --show --partscan $tg_loop chr-efi.img
+          echo "$tg_loop" >> "$GITHUB_OUTPUT"
 
       - name: Format boot partition
         run: |
-          sudo -E mkfs -t fat /dev/nbd1p1
+          sudo -E mkfs -t fat ${{steps.mount_target.outputs}}p1
 
-      - name: Create tmp dir
+      - name: Create tmp dir and mount
         run: |
           sudo -E mkdir /tmp/chr-bios/
           sudo -E mkdir /tmp/chr-efi/
-
-      - name: Mount
-        run: |
-          sudo -E mount /dev/nbd0p1 /tmp/chr-bios/
-          sudo -E mount /dev/nbd1p1 /tmp/chr-efi/
+          sudo -E mount ${{steps.mount_original.outputs}}p1 /tmp/chr-bios/
+          sudo -E mount ${{steps.mount_target.outputs}}p1 /tmp/chr-efi/
 
       - name: Sync files
         run: |
@@ -86,8 +86,8 @@ jobs:
 
       - name: Umount
         run: |
-          sudo -E umount /dev/nbd0p1
-          sudo -E umount /dev/nbd1p1
+          sudo -E umount ${{steps.mount_original.outputs}}p1
+          sudo -E umount ${{steps.mount_target.outputs}}p1
 
       - name: Create Hybrid MBR
         if: matrix.disk_type == 'gpt'
@@ -108,21 +108,21 @@ jobs:
           echo n # Unused partition space(s) found. Use one to protect more partitions? (Y/N)
           echo w # write changes to disk
           echo y # confirm
-          ) | sudo -E gdisk /dev/nbd1
+          ) | sudo -E gdisk ${{steps.mount_target.outputs}}
   
       - name: Disconnect ndb
         run: |
-          sudo -E qemu-nbd -d /dev/nbd0
-          sudo -E qemu-nbd -d /dev/nbd1
+          sudo -E losetup -d ${{steps.mount_original.outputs}}
+          sudo -E losetup -d ${{steps.mount_target.outputs}}
       
       - name: Rename artifact
         run: |
-          mv chr-efi.qcow2 chr-efi-${{env.CHR_VERSION}}-${{matrix.disk_type}}.qcow2
+          mv chr-efi.img chr-efi-${{env.CHR_VERSION}}-${{matrix.disk_type}}.img
 
       - uses: actions/upload-artifact@v4
         with:
-          name: chr-efi-${{env.CHR_VERSION}}-${{matrix.disk_type}}.qcow2
-          path: chr-efi-${{env.CHR_VERSION}}-${{matrix.disk_type}}.qcow2
+          name: chr-efi-${{env.CHR_VERSION}}-${{matrix.disk_type}}.img
+          path: chr-efi-${{env.CHR_VERSION}}-${{matrix.disk_type}}.img
 
   release:
     name: Release
@@ -151,11 +151,11 @@ jobs:
       - name: Convert images
         run: |
           for disk_type in mbr gpt; do
-            qemu-img convert -f qcow2 -O vmdk firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.vmdk
-            qemu-img convert -f qcow2 -O vpc firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhd
-            qemu-img convert -f qcow2 -O vhdx firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhdx
-            qemu-img convert -f qcow2 -O vdi firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.vdi
-            qemu-img convert -f qcow2 -O raw firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.img
+            qemu-img convert -f raw -O vmdk firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vmdk
+            qemu-img convert -f raw -O vpc firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhd
+            qemu-img convert -f raw -O vhdx firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhdx
+            qemu-img convert -f raw -O vdi firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vdi
+            qemu-img convert -f raw -O qcow2 firmware/chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2
           done
 
       - name: Zip images
