@@ -14,7 +14,7 @@ env:
 
 jobs:
   build:
-    name: Build ${{matrix.disk_type}}.qcow2
+    name: Build ${{matrix.disk_type}}.img
 
     runs-on: ubuntu-latest
 
@@ -49,7 +49,7 @@ jobs:
 
       - name: Download
         run: |
-          curl -skL --retry 3 --connect-timeout 3 -o chr.img.zip https://github.com/elseif/MikroTikPatch/releases/download/${{env.CHR_VERSION}}/chr-${{env.CHR_VERSION}}.img.zip
+          curl -skL --retry 3 --connect-timeout 3 -o chr.img.zip https://download.mikrotik.com/routeros/${{env.CHR_VERSION}}/chr-${{env.CHR_VERSION}}.img.zip
           unzip chr.img.zip
           rm chr.img.zip
 
