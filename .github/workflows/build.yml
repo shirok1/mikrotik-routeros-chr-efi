@@ -21,6 +21,7 @@ jobs:
     # if: github.event.repository.owner.id == github.event.sender.id || ! github.event.sender.id
 
     strategy:
+      fail-fast: false
       matrix:
         disk_type: [mbr, gpt]
 
@@ -125,6 +126,8 @@ jobs:
 
   release:
     name: Release
+
+    if: ${{ always() }}
 
     needs: build
   
