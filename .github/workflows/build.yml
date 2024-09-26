@@ -127,7 +127,7 @@ jobs:
   release:
     name: Release
 
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
 
     needs: build
   
@@ -151,12 +151,12 @@ jobs:
 
       - name: Convert images
         run: |
-          for disk_type in mbr gpt; do
-            qemu-img convert -f raw -O vmdk chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vmdk
-            qemu-img convert -f raw -O vpc chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhd
-            qemu-img convert -f raw -O vhdx chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vhdx
-            qemu-img convert -f raw -O vdi chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.vdi
-            qemu-img convert -f raw -O qcow2 chr-efi-${{env.CHR_VERSION}}-${disk_type}.img chr-efi-${{env.CHR_VERSION}}-${disk_type}.qcow2
+          for file in *.img; do
+            qemu-img convert -f raw -O vmdk ${file} ${file%.*}.vmdk
+            qemu-img convert -f raw -O vpc ${file} ${file%.*}.vhd
+            qemu-img convert -f raw -O vhdx ${file} ${file%.*}.vhdx
+            qemu-img convert -f raw -O vdi ${file} ${file%.*}.vdi
+            qemu-img convert -f raw -O qcow2 ${file} ${file%.*}.qcow2
           done
 
       - name: Zip images
