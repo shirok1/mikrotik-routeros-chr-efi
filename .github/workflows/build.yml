@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  CHR_VERSION: 7.16
+  CHR_VERSION: 7.16.1
 
 jobs:
   build:
